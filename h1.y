@@ -44,7 +44,7 @@ program :: { [Char] }
 
 code :: { [Char] }
   : expr
-    { mainTmpl $1
+    {% resetLocal >> (return $ mainTmpl $1)
     }
   | func code
     { $1 ++
@@ -54,41 +54,50 @@ code :: { [Char] }
 func :: { [Char] }
   : 'function' I_IDENTITY '{' expr '}'
     {% do
+      resetLocal
       funcLabel <- newFunc $2
       return $
-        funcLabel ++ ":\n" ++
-        "pushq %rbp\n" ++
-        "movq %rsp, %rbp\n" ++
+        "define i32 " ++ funcLabel ++ "(i32 %arg) {\n" ++
+        "entry:\n" ++
+        "  %val.addr = alloca i32\n" ++
         $4 ++
-        "popq %rax\n" ++
-        "popq %rbp\n" ++
-        "ret\n"
+        "  %val = load i32* %val.addr\n" ++
+        "  ret i32 %val\n" ++
+        "}\n\n"
     }
 
 expr :: { [Char] }
   : 'arg'
-    { "movq 16(%rbp), %rax\n" ++
-      "pushq %rax\n"
+    { "  store i32 %arg, i32* %val.addr\n"
     }
   | I_NUMBER
-    { "pushq $" ++ show $1 ++ "\n"
+    { "  store i32 " ++ show $1 ++ ", i32* %val.addr\n"
     }
   | I_IDENTITY '(' expr ')'
     {% do
       funcLabel <- lookupFunc $1
+      arg <- nextLocal
+      val <- nextLocal
       return $
         $3 ++
-        "call " ++ funcLabel ++ "\n" ++
-        "popq %rbx\n" ++
-        "pushq %rax\n"
+        "  " ++ arg ++ " = load i32* %val.addr\n" ++
+        "  " ++ val ++ " = call " ++ "i32 " ++ funcLabel ++ "(i32 " ++ arg ++ ")\n" ++
+        "  store i32 " ++ val ++ ", i32* %val.addr\n"
     }
   | expr '+' expr
-    { $1 ++
-      $3 ++
-      "popq %rbx\n" ++
-      "popq %rax\n" ++
-      "addq %rbx, %rax\n" ++
-      "pushq %rax\n"
+    {% do
+      lhs <- nextLocal
+      rhs <- nextLocal
+      val <- nextLocal
+      return $
+        $1 ++
+        "  " ++ lhs ++ " = load i32* %val.addr\n" ++
+        --"  store i32 %val, i32* %lhs.addr\n" ++
+        $3 ++
+        "  " ++ rhs ++ " = load i32* %val.addr\n" ++
+        --"  store i32 %val, i32* %rhs.addr\n" ++
+        "  " ++ val ++ " = add nsw i32 " ++ lhs ++ ", " ++ rhs ++ "\n" ++
+        "  store i32 " ++ val ++ ", i32* %val.addr\n"
     }
   | expr '-' expr
     { $1 ++

@@ -38,28 +38,30 @@ alwaysThen command = do
   unless (exitCode == ExitSuccess) (fail "exec fail")
 
 main = do
-  [compilerName, targetName] <- getArgs
+  [c, t] <- getArgs
 
   maybeResult <- runMaybeT $ do
-    needThen ("happy -i -o " ++ compilerName ++ ".hs " ++ compilerName ++ ".y") (compilerName ++ ".hs") [compilerName ++ ".y"]
+    needThen ("happy -i -o " ++ c ++ ".hs " ++ c ++ ".y") (c ++ ".hs") [c ++ ".y"]
     needThen
-      ("ghc --make " ++ compilerName)
-      compilerName
-      [ compilerName ++ ".hs"
+      ("ghc --make " ++ c)
+      c
+      [ c ++ ".hs"
       , "Template.hs"
       , "Lexer.hs"
       , "ParserState.hs"
       , "ParserState2.hs"
       , "ParserState3.hs"
       ]
-    alwaysThen ("./" ++ compilerName ++ " < " ++ targetName ++ ".code > " ++ targetName ++ ".s")
-    needThen ("as -o " ++ targetName ++ ".o " ++ targetName ++ ".s") (targetName ++ ".o") [targetName ++ ".s"]
-    needThen ("ld -o " ++ targetName ++ " " ++ targetName ++ ".o") targetName [targetName ++ ".o"]
+    alwaysThen ("./" ++ c ++ " < " ++ t ++ ".code > " ++ t ++ ".ll")
+    needThen ("llvm-as -o " ++ t ++ ".bc " ++ t ++ ".ll") (t ++ ".bc") [t ++ ".ll"]
+    needThen ("llc -o " ++ t ++ ".s " ++ t ++ ".bc") (t ++ ".s") [t ++ ".bc"]
+    needThen ("clang -c -o " ++ t ++ ".o " ++ t ++ ".s") (t ++ ".o") [t ++ ".s"]
+    needThen ("ld -lc /usr/lib/crt1.o -o " ++ t ++ " " ++ t ++ ".o") t [t ++ ".o"]
 
   if maybeResult == Nothing
     then
       putStrLn "Compile failed."
     else do
       putStrLn "Compile success. Run the test..."
-      void $ runMaybeT $ alwaysThen ("./" ++ targetName)
+      void $ runMaybeT $ alwaysThen ("./" ++ t)
 
