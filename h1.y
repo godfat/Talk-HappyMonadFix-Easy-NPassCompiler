@@ -92,10 +92,8 @@ expr :: { [Char] }
       return $
         $1 ++
         "  " ++ lhs ++ " = load i32* %val.addr\n" ++
-        --"  store i32 %val, i32* %lhs.addr\n" ++
         $3 ++
         "  " ++ rhs ++ " = load i32* %val.addr\n" ++
-        --"  store i32 %val, i32* %rhs.addr\n" ++
         "  " ++ val ++ " = add nsw i32 " ++ lhs ++ ", " ++ rhs ++ "\n" ++
         "  store i32 " ++ val ++ ", i32* %val.addr\n"
     }
