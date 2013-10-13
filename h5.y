@@ -116,11 +116,15 @@ expr :: { Int -> Parser ([Char], Int) }
     }
   | expr '+' expr
     { binaryOp $1 $3 $ \valR lhsR rhsR ->
-        "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
+        ( "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
+        , 1
+        )
     }
   | expr '-' expr
     { binaryOp $1 $3 $ \valR lhsR rhsR ->
-        "  " ++ valR ++ " = sub nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
+        ( "  " ++ valR ++ " = sub nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
+        , 1
+        )
     }
   | expr '<=' expr
     { \offset -> do
@@ -168,21 +172,24 @@ expr :: { Int -> Parser ([Char], Int) }
 
 type Expr = Int -> Parser ([Char], Int)
 
-binaryOp :: Expr -> Expr -> ([Char] -> [Char] -> [Char] -> [Char]) -> Expr
+binaryOp :: Expr -> Expr -> ([Char] -> [Char] -> [Char] -> ([Char], Int))
+         -> Expr
 binaryOp lhs rhs op offset = do
   (arg1, arg1Size) <- lhs offset
   (arg2, arg2Size) <- rhs (offset + arg1Size)
   lhsR <- nextLocal
   rhsR <- nextLocal
   valR <- nextLocal
+  let (body, bodySize) = op valR lhsR rhsR
   return
     ( arg1 ++
       "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
       arg2 ++
       "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
-      (op valR lhsR rhsR) ++
+      body ++
       "  store i32 " ++ valR ++ ", i32* %val.addr\n"
-    , 4)
+    , bodySize + 3
+    )
 
 
 parseError :: [Token] -> a
