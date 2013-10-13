@@ -54,7 +54,7 @@ code :: { Int -> Parser ([Char], Int) }
         [prefixSize, postfixSize] = map (length . filter (== '\n')) [mainTmplPrefix, mainTmplPostfix]
       (funcs, funcsSize) <- $1 offset
       (body, bodySize) <- $2 (offset + funcsSize + prefixSize)
-      --resetLocal
+      resetLocal
       return (funcs ++ mainTmplPrefix ++ body ++ mainTmplPostfix, funcsSize + prefixSize + bodySize + postfixSize)
     }
 
@@ -80,11 +80,13 @@ func :: { Int -> Parser ([Char], Int) }
           "define i32 " ++ funcLabel ++ "(i32 %arg) {\n" ++
           "entry:\n" ++
           "  %val.addr = alloca i32\n" ++
+          "  %con.addr = alloca i1\n" ++
           body ++
           "  %val = load i32* %val.addr\n" ++
           "  ret i32 %val\n" ++
-          "}\n\n"
-        , bodySize + funcsSize + 7
+          "}\n" ++
+          "\n"
+        , bodySize + funcsSize + 8
         )
     }
 
@@ -117,56 +119,53 @@ expr :: { Int -> Parser ([Char], Int) }
   | expr '+' expr
     { binaryOp $1 $3 $ \valR lhsR rhsR ->
         return
-          ( "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
-          , 1
+          ( "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+            "  store i32 " ++ valR ++ ", i32* %val.addr\n"
+          , 2
           )
     }
   | expr '-' expr
     { binaryOp $1 $3 $ \valR lhsR rhsR ->
         return
-          ( "  " ++ valR ++ " = sub nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
-          , 1
+          ( "  " ++ valR ++ " = sub nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+            "  store i32 " ++ valR ++ ", i32* %val.addr\n"
+          , 2
           )
     }
   | expr '<=' expr
-    { \offset -> do
-      (arg1, arg1Size) <- $1 offset
-      (arg2, arg2Size) <- $3 (offset + arg1Size)
-      trueLabel <- nextLabel (offset + arg1Size + arg2Size + 7)
-      endLabel <- nextLabel (offset + arg1Size + arg2Size + 9)
-      return
-        ( arg1 ++
-          arg2 ++
-          "popq %rbx\n" ++
-          "popq %rax\n" ++
-          "cmpq %rbx, %rax\n" ++
-          "jbe " ++ trueLabel ++ "\n" ++
-          "pushq $0\n" ++
-          "jmp " ++ endLabel ++ "\n" ++
-          trueLabel ++ ":\n" ++
-          "pushq $1\n" ++
-          endLabel ++ ":\n"
-        , arg1Size + arg2Size + 9
-        )
+    { binaryOp $1 $3 $ \valR lhsR rhsR ->
+        return
+          ( "  " ++ valR ++ " = icmp sle i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+            "  store i1 " ++ valR ++ ", i1* %con.addr\n"
+          , 2
+          )
     }
   | 'if' '(' expr ')' '{' expr '}' 'else' '{' expr '}'
     { \offset -> do
       (cond, condSize) <- $3 offset
+      cmpR <- nextLocal
       (positive, positiveSize) <- $6 (offset + condSize + 3)
       (negative, negativeSize) <- $10 (offset + condSize + 3 + positiveSize + 2)
-      elseLabel <- nextLabel (offset + condSize + 3 + positiveSize + 2)
-      endLabel <- nextLabel (offset + condSize + 3 + positiveSize + 2 + negativeSize + 1)
+      let ifOffset = offset + condSize + 3 + positiveSize + 2
+          elseOffset = ifOffset + negativeSize
+      ifLabel <- liftM ("if." ++) $ nextLabel ifOffset
+      elseLabel <- liftM ("else." ++) $ nextLabel elseOffset
+      endLabel <- liftM ("end." ++) $ nextLabel elseOffset
       return
         ( cond ++
-          "popq %rax\n" ++
-          "cmpq $0, %rax\n" ++
-          "jz " ++ elseLabel ++ "\n" ++
+          "  " ++ cmpR ++ " = load i1* %con.addr\n" ++
+          "  br i1 " ++ cmpR ++ ", label %" ++ ifLabel ++ ", label %" ++ elseLabel ++ "\n" ++
+          "\n" ++
+          ifLabel ++ ":\n" ++
           positive ++
-          "jmp " ++ endLabel ++ "\n" ++
+          "  br label %" ++ endLabel ++ "\n" ++
+          "\n" ++
           elseLabel ++ ":\n" ++
           negative ++
+          "  br label %" ++ endLabel ++ "\n" ++
+          "\n" ++
           endLabel ++ ":\n"
-        , condSize + 3 + positiveSize + 2 + negativeSize + 1
+        , elseOffset + 10
         )
     }
 
@@ -179,8 +178,8 @@ binaryOp :: Expr -> Expr
          -> Expr
 binaryOp lhs rhs op offset = do
   (arg1, arg1Size) <- lhs offset
-  (arg2, arg2Size) <- rhs (offset + arg1Size)
   lhsR <- nextLocal
+  (arg2, arg2Size) <- rhs (offset + arg1Size)
   rhsR <- nextLocal
   valR <- nextLocal
   (body, bodySize) <- op valR lhsR rhsR
@@ -189,9 +188,8 @@ binaryOp lhs rhs op offset = do
       "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
       arg2 ++
       "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
-      body ++
-      "  store i32 " ++ valR ++ ", i32* %val.addr\n"
-    , bodySize + 3
+      body
+    , arg1Size + arg2Size + bodySize + 2
     )
 
 
