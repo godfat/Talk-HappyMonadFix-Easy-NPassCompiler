@@ -118,18 +118,7 @@ expr :: { Int -> Parser ([Char], Int) }
     { binaryOp "add" $1 $3
     }
   | expr '-' expr
-    { \offset -> do
-      (arg1, arg1Size) <- $1 offset
-      (arg2, arg2Size) <- $3 (offset + arg1Size)
-      return
-        ( arg1 ++
-          arg2 ++
-          "popq %rbx\n" ++
-          "popq %rax\n" ++
-          "subq %rbx, %rax\n" ++
-          "pushq %rax\n"
-        , arg1Size + arg2Size + 4
-        )
+    { binaryOp "sub" $1 $3
     }
   | expr '<=' expr
     { \offset -> do
