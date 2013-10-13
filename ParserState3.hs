@@ -33,7 +33,7 @@ initParserState finalFuncTable = ParserState
 
 nextLabel :: Monad m => Int -> ParserT m [Char]
 nextLabel offset = do
-  return $ "@line_" ++ show offset
+  return $ "line_" ++ show offset
 
 nextLocal :: Monad m => ParserT m [Char]
 nextLocal = do
@@ -57,7 +57,7 @@ newFunc name offset = do
     then
       fail $ "function " ++ name ++ " redefined"
     else do
-      newLabel <- nextLabel offset
+      newLabel <- liftM ('@':) $ nextLabel offset
       oldState' <- get
       let
         newTable = M.insert name newLabel oldTable
