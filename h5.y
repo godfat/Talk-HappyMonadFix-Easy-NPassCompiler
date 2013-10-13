@@ -115,21 +115,7 @@ expr :: { Int -> Parser ([Char], Int) }
         )
     }
   | expr '+' expr
-    { \offset -> do
-      (arg1, arg1Size) <- $1 offset
-      (arg2, arg2Size) <- $3 (offset + arg1Size)
-      lhsR <- nextLocal
-      rhsR <- nextLocal
-      valR <- nextLocal
-      return
-        ( arg1 ++
-          "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
-          arg2 ++
-          "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
-          "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
-          "  store i32 " ++ valR ++ ", i32* %val.addr\n"
-        , arg1Size + arg2Size + 4
-        )
+    { binaryOp "add" $1 $3
     }
   | expr '-' expr
     { \offset -> do
@@ -188,6 +174,26 @@ expr :: { Int -> Parser ([Char], Int) }
     }
 
 {
+
+type Expr = Int -> Parser ([Char], Int)
+
+binaryOp :: [Char] -> Expr -> Expr -> Expr
+binaryOp op lhs rhs offset = do
+  (arg1, arg1Size) <- lhs offset
+  (arg2, arg2Size) <- rhs (offset + arg1Size)
+  lhsR <- nextLocal
+  rhsR <- nextLocal
+  valR <- nextLocal
+  return
+    ( arg1 ++
+      "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
+      arg2 ++
+      "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
+      "  " ++ valR ++ " = " ++ op ++ " nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+      "  store i32 " ++ valR ++ ", i32* %val.addr\n"
+    ,
+    4)
+
 
 parseError :: [Token] -> a
 parseError tks = error $ "parseError: " ++ show tks
