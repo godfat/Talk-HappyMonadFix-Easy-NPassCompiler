@@ -115,10 +115,12 @@ expr :: { Int -> Parser ([Char], Int) }
         )
     }
   | expr '+' expr
-    { binaryOp "add" $1 $3
+    { binaryOp $1 $3 $ \valR lhsR rhsR ->
+        "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
     }
   | expr '-' expr
-    { binaryOp "sub" $1 $3
+    { binaryOp $1 $3 $ \valR lhsR rhsR ->
+        "  " ++ valR ++ " = sub nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n"
     }
   | expr '<=' expr
     { \offset -> do
@@ -166,8 +168,8 @@ expr :: { Int -> Parser ([Char], Int) }
 
 type Expr = Int -> Parser ([Char], Int)
 
-binaryOp :: [Char] -> Expr -> Expr -> Expr
-binaryOp op lhs rhs offset = do
+binaryOp :: Expr -> Expr -> ([Char] -> [Char] -> [Char] -> [Char]) -> Expr
+binaryOp lhs rhs op offset = do
   (arg1, arg1Size) <- lhs offset
   (arg2, arg2Size) <- rhs (offset + arg1Size)
   lhsR <- nextLocal
@@ -178,10 +180,9 @@ binaryOp op lhs rhs offset = do
       "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
       arg2 ++
       "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
-      "  " ++ valR ++ " = " ++ op ++ " nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+      (op valR lhsR rhsR) ++
       "  store i32 " ++ valR ++ ", i32* %val.addr\n"
-    ,
-    4)
+    , 4)
 
 
 parseError :: [Token] -> a
