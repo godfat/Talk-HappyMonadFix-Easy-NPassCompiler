@@ -5,6 +5,8 @@ module ParserState3
   , FuncTable
   , initParserState
   , nextLabel
+  , nextLocal
+  , resetLocal
   , newFunc
   , lookupFunc
   ) where
@@ -17,19 +19,33 @@ type FuncTable = M.Map [Char] [Char]
 data ParserState = ParserState
   { parserFuncTable :: FuncTable
   , parserFinalFuncTable :: FuncTable
+  , parserLocalCursor :: Int
   }
 
 type ParserT m a = StateT ParserState m a
 type Parser a = ParserT IO a
 
 initParserState finalFuncTable = ParserState
-  { parserFuncTable = M.fromList [("input", "read"), ("output", "write")]
+  { parserFuncTable = M.fromList [("input", "@read"), ("output", "@write")]
   , parserFinalFuncTable = finalFuncTable
+  , parserLocalCursor = -1
   }
 
 nextLabel :: Monad m => Int -> ParserT m [Char]
 nextLabel offset = do
-  return $ "line_" ++ show offset
+  return $ "@line_" ++ show offset
+
+nextLocal :: Monad m => ParserT m [Char]
+nextLocal = do
+  oldState <- get
+  let
+    newLocal = (parserLocalCursor oldState) + 1
+  put $ oldState{ parserLocalCursor = newLocal }
+  return $ '%' : (show newLocal)
+
+resetLocal :: Monad m => ParserT m ()
+resetLocal = do
+  modify $ \s -> s{ parserLocalCursor = -1 }
 
 newFunc :: Monad m => [Char] -> Int -> ParserT m [Char]
 newFunc name offset = do

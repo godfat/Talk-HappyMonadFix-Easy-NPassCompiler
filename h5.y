@@ -54,6 +54,7 @@ code :: { Int -> Parser ([Char], Int) }
         [prefixSize, postfixSize] = map (length . filter (== '\n')) [mainTmplPrefix, mainTmplPostfix]
       (funcs, funcsSize) <- $1 offset
       (body, bodySize) <- $2 (offset + funcsSize + prefixSize)
+      --resetLocal
       return (funcs ++ mainTmplPrefix ++ body ++ mainTmplPostfix, funcsSize + prefixSize + bodySize + postfixSize)
     }
 
@@ -73,38 +74,43 @@ func :: { Int -> Parser ([Char], Int) }
       (funcs, funcsSize) <- $4 offset
       funcLabel <- newFunc $2 (offset + funcsSize + 1)
       (body, bodySize) <- $5 (offset + funcsSize + 3)
+      resetLocal
       return
         ( funcs ++
-          funcLabel ++ ":\n" ++
-          "pushq %rbp\n" ++
-          "movq %rsp, %rbp\n" ++
+          "define i32 " ++ funcLabel ++ "(i32 %arg) {\n" ++
+          "entry:\n" ++
+          "  %val.addr = alloca i32\n" ++
           body ++
-          "popq %rax\n" ++
-          "popq %rbp\n" ++
-          "ret\n"
-        , bodySize + funcsSize + 6
+          "  %val = load i32* %val.addr\n" ++
+          "  ret i32 %val\n" ++
+          "}\n\n"
+        , bodySize + funcsSize + 7
         )
     }
 
 expr :: { Int -> Parser ([Char], Int) }
   : 'arg'
     { \_ -> return
-      ( "movq 16(%rbp), %rax\n" ++
-        "pushq %rax\n"
+      ( "  store i32 %arg, i32* %val.addr\n"
       , 2)
     }
   | I_NUMBER
-    { \_ -> return ("pushq $" ++ show $1 ++ "\n", 1)
+    { \_ -> return
+      ( "  store i32 " ++ show $1 ++ ", i32* %val.addr\n"
+      , 1)
     }
   | I_IDENTITY '(' expr ')'
     { \offset -> do
       funcLabel <- lookupFunc $1
       (arg, argSize) <- $3 offset
+      argR <- nextLocal
+      valR <- nextLocal
       return
-        ( arg ++
-          "call " ++ funcLabel ++ "\n" ++
-          "popq %rbx\n" ++
-          "pushq %rax\n"
+        (
+          arg ++
+          "  " ++ argR ++ " = load i32* %val.addr\n" ++
+          "  " ++ valR ++ " = call " ++ "i32 " ++ funcLabel ++ "(i32 " ++ argR ++ ")\n" ++
+          "  store i32 " ++ valR ++ ", i32* %val.addr\n"
         , argSize + 3
         )
     }
@@ -112,13 +118,16 @@ expr :: { Int -> Parser ([Char], Int) }
     { \offset -> do
       (arg1, arg1Size) <- $1 offset
       (arg2, arg2Size) <- $3 (offset + arg1Size)
+      lhsR <- nextLocal
+      rhsR <- nextLocal
+      valR <- nextLocal
       return
         ( arg1 ++
+          "  " ++ lhsR ++ " = load i32* %val.addr\n" ++
           arg2 ++
-          "popq %rbx\n" ++
-          "popq %rax\n" ++
-          "addq %rbx, %rax\n" ++
-          "pushq %rax\n"
+          "  " ++ rhsR ++ " = load i32* %val.addr\n" ++
+          "  " ++ valR ++ " = add nsw i32 " ++ lhsR ++ ", " ++ rhsR ++ "\n" ++
+          "  store i32 " ++ valR ++ ", i32* %val.addr\n"
         , arg1Size + arg2Size + 4
         )
     }
